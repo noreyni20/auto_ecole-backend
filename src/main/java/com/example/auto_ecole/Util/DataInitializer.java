@@ -10,6 +10,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.Set;
 
 @Component
@@ -26,7 +27,9 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        Role superAdminRole = roleRepo.findByName("ROLE_SUPER_ADMIN");
+        Optional<Role> optionalRole = roleRepo.findByName("ROLE_SUPER_ADMIN");
+        Role superAdminRole = optionalRole.orElseGet(() -> roleRepo.save(new Role("ROLE_SUPER_ADMIN")));
+
         if (superAdminRole == null) {
             superAdminRole = roleRepo.save(new Role("ROLE_SUPER_ADMIN"));
         }
