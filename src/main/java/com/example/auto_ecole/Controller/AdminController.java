@@ -4,6 +4,8 @@ import com.example.auto_ecole.Entity.Role;
 import com.example.auto_ecole.Entity.User;
 import com.example.auto_ecole.Repository.RoleRepository;
 import com.example.auto_ecole.Repository.UserRepository;
+import com.example.auto_ecole.Service.SmsService;
+import com.example.auto_ecole.Util.PasswordUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,17 +29,15 @@ public class AdminController {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private SmsService smsService;
+
 
     @PostMapping("/create-candidate")
     public ResponseEntity<?> createCandidate(@AuthenticationPrincipal UserDetails adminDetails,
                                              @RequestBody Map<String, String> body) {
         String phone = body.get("phone");
         String username = body.get("username");
-        String password = body.getOrDefault("password", generateRandomPassword());
-
-        if (phone == null || username == null) {
-            return ResponseEntity.badRequest().body("Le téléphone et le nom d'utilisateur sont obligatoires.");
-        }
 
         Optional<User> existing = userRepository.findByPhone(phone);
         if (existing.isPresent()) {
@@ -52,28 +52,37 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Quota atteint");
         }
 
+        //  Génération du mot de passe temporaire
+        String tempPassword = PasswordUtil.generateTemporaryPassword();
+
+        // ✅ Rôle
         Role role = roleRepository.findByName("ROLE_CANDIDAT")
                 .orElseGet(() -> roleRepository.save(new Role("ROLE_CANDIDAT")));
 
+        // 👤 Création candidat
         User candidate = new User();
         candidate.setUsername(username);
-        candidate.setPassword(passwordEncoder.encode(password));
+        candidate.setPassword(passwordEncoder.encode(tempPassword));
         candidate.setPhone(phone);
         candidate.setCreatedBy(admin);
         candidate.setRoles(Set.of(role));
         candidate.setRegistrationDate(LocalDate.now());
         candidate.setExpirationDate(LocalDate.now().plusDays(30));
-
-        // Hériter du nom de l'auto-école de l'admin
-        candidate.setDrivingSchoolName(admin.getDrivingSchoolName());
+        candidate.setMustChangePassword(true); // 🔁 Forcer changement
 
         userRepository.save(candidate);
 
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Candidat créé avec succès.");
-        response.put("mot_de_passe", password); // retourner le mot de passe généré
-        return ResponseEntity.ok(response);
+        // 📲 Envoi SMS avec numéro et mot de passe temporaire + lien
+        String smsMessage = "Bienvenue sur Auto-École App.\n"
+                + "Identifiant: " + phone + "\n"
+                + "Mot de passe temporaire: " + tempPassword + "\n"
+                + "Changez votre mot de passe ici : https://tonapp.com/reset-password";
+
+        smsService.sendSms(phone, smsMessage);
+
+        return ResponseEntity.ok("Candidat créé et SMS envoyé.");
     }
+
 
     private String generateRandomPassword() {
         return UUID.randomUUID().toString().substring(0, 8); // Ex: "a1b2c3d4"
@@ -102,5 +111,31 @@ public class AdminController {
 
         return ResponseEntity.ok(response);
     }
+
+
+    @PutMapping("/toggle-candidate-status/{candidateId}")
+    public ResponseEntity<?> toggleCandidateStatus(@PathVariable Long candidateId,
+                                                   @AuthenticationPrincipal UserDetails adminDetails) {
+
+        User admin = userRepository.findByUsername(adminDetails.getUsername()).orElseThrow();
+        Optional<User> userOpt = userRepository.findById(candidateId);
+        if (userOpt.isEmpty()) return ResponseEntity.notFound().build();
+
+        User candidate = userOpt.get();
+
+
+        if (!candidate.hasRole("CANDIDAT") || candidate.getCreatedBy() == null ||
+                !candidate.getCreatedBy().getId().equals(admin.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Ce compte ne vous appartient pas.");
+        }
+
+
+        candidate.setEnabled(!candidate.isEnabled());
+        userRepository.save(candidate);
+
+        String status = candidate.isEnabled() ? "activé" : "désactivé";
+        return ResponseEntity.ok("Compte candidat " + status);
+    }
+
 
 }

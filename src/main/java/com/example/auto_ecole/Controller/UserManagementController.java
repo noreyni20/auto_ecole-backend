@@ -6,6 +6,9 @@ import com.example.auto_ecole.Entity.Role;
 import com.example.auto_ecole.Entity.User;
 import com.example.auto_ecole.Repository.RoleRepository;
 import com.example.auto_ecole.Repository.UserRepository;
+import com.example.auto_ecole.Service.EmailService;
+import com.example.auto_ecole.Service.FakeEmailService;
+import com.example.auto_ecole.Util.PasswordUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,10 +28,16 @@ public class UserManagementController {
     @Autowired private RoleRepository roleRepo;
     @Autowired private PasswordEncoder passwordEncoder;
 
+
+    @Autowired
+    private FakeEmailService emailService;
+
+
+
+
     @PostMapping("/create-admin")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<?> createAdmin(@RequestBody AdminRequest request, Authentication auth) {
-
+    public ResponseEntity<?> createAdmin(@RequestBody AuthRequest request) {
         if (userRepo.findByUsername(request.getUsername()).isPresent()) {
             return ResponseEntity.badRequest().body("Ce nom d'utilisateur existe déjà");
         }
@@ -36,20 +45,25 @@ public class UserManagementController {
         Role role = roleRepo.findByName("ROLE_ADMIN")
                 .orElseGet(() -> roleRepo.save(new Role("ROLE_ADMIN")));
 
+        String tempPassword = PasswordUtil.generateTemporaryPassword();
+
         User admin = new User();
         admin.setUsername(request.getUsername());
-        admin.setPassword(passwordEncoder.encode(request.getPassword()));
+        admin.setPassword(passwordEncoder.encode(tempPassword));
         admin.setPhone(request.getPhone());
         admin.setAddress(request.getAddress());
         admin.setDrivingSchoolName(request.getDrivingSchoolName());
         admin.setRegistrationDate(LocalDate.now());
         admin.setRoles(Set.of(role));
-        admin.setRole("ADMIN");
-        admin.setCandidateQuota(5); // Par défaut
+        admin.setCandidateQuota(5);
+        admin.setMustChangePassword(true);
 
         userRepo.save(admin);
 
-        return ResponseEntity.ok("✔ Compte admin créé avec succès");
+        emailService.sendCredentials(request.getUsername(), request.getUsername(), tempPassword);
+
+        return ResponseEntity.ok("✔ Compte admin créé et email envoyé");
     }
+
 
 }

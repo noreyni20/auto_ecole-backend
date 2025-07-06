@@ -42,6 +42,25 @@ public class User {
     @ManyToOne
     private User createdBy;
 
+    private boolean mustChangePassword = false;
+
+
+
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
+    }
+
+    public boolean hasRole(String roleName) {
+        String expected = roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName;
+        return roles.stream().anyMatch(r -> r.getName().equalsIgnoreCase(expected));
+    }
+
+
+
+
     // ===========================
     //        GETTERS / SETTERS
     // ===========================
